@@ -1,0 +1,23 @@
+[Unit]
+Description=CyberScribe nftables Executor Service
+After=network.target firewalld.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=cyberscribe
+Group=cyberscribe
+WorkingDirectory=/opt/cyberscribe-executor
+EnvironmentFile=/etc/cyberscribe-executor.env
+ExecStart=/usr/bin/python3 /opt/cyberscribe-executor/executor_daemon.py --host 0.0.0.0 --port 8088 --table cyberscribe
+Restart=always
+RestartSec=5s
+
+# Hardening Directives
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=no
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

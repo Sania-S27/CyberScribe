@@ -1,0 +1,6 @@
+# /etc/sudoers.d/cyberscribe-nftables
+# Allows dedicated 'cyberscribe' service account to invoke ONLY the locked-down helper.
+# Strictly limits execution to /usr/libexec/cyberscribe/cyberscribe_nft_helper.py without password.
+# No arbitrary nft commands, no shell access, no table flushing, no alteration of firewalld.
+Defaults:cyberscribe !requiretty
+cyberscribe ALL=(root) NOPASSWD: /usr/libexec/cyberscribe/cyberscribe_nft_helper.py

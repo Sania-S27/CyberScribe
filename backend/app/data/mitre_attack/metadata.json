@@ -1,0 +1,14 @@
+{
+  "dataset_name": "MITRE ATT&CK Enterprise",
+  "dataset_version": "v16.1 (Enterprise ATT&CK STIX 2.1)",
+  "source_url": "https://github.com/mitre-attack/attack-stix-data",
+  "raw_data_url": "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/enterprise-attack/enterprise-attack.json",
+  "retrieval_date": "2026-10-10",
+  "total_techniques_and_subtechniques": 858,
+  "active_techniques": 697,
+  "revoked_techniques": 149,
+  "deprecated_techniques": 12,
+  "subtechniques": 493,
+  "license": "MITRE ATT&CK Terms of Use",
+  "attribution": "© 2026 The MITRE Corporation. This work is reproduced and distributed with the permission of The MITRE Corporation. MITRE ATT&CK and ATT&CK are registered trademarks of The MITRE Corporation."
+}
