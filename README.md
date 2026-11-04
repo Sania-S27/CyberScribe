@@ -1,4 +1,4 @@
-# CyberScribe — Autonomous Multi-Agent Cyber Threat Intelligence & Containment Platform
+# CyberScribe — AI Agent for Automated Cyber Threat Report Generation
 
 > **Autonomous Multi-Agent Cyber Threat Intelligence, Evidence Grounding, Vulnerability Correlation, and Policy-Governed Remediation Platform**
 
