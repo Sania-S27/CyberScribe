@@ -221,6 +221,27 @@ def get_tenant_containment_actions(
         elif "WINDOWS" in str(rule_spec).upper() or act_id.startswith("act-win") or "Windows Defender" in out_text:
             executor_type = "WINDOWS_DEFENDER_FIREWALL"
 
+        # Determine execution result and verification status from persisted telemetry
+        if a.error_message or (a.status or "").upper() == "FAILED":
+            execution_result = "FAILED"
+        elif a.verified_at is not None or (a.status or "").upper() == "VERIFIED":
+            execution_result = "VERIFIED"
+        elif is_sim and (a.status or "").upper() in ("SIMULATED", "ROLLED_BACK", "EXPIRED"):
+            execution_result = "SIMULATED"
+        elif (a.status or "").upper() in ("APPLIED", "ROLLED_BACK", "EXPIRED"):
+            execution_result = "APPLIED"
+        else:
+            execution_result = (a.status or "PENDING").upper()
+
+        if a.verified_at is not None or (a.status or "").upper() == "VERIFIED":
+            verification_status = "VERIFIED"
+        elif (a.status or "").upper() == "FAILED" or bool(a.error_message):
+            verification_status = "FAILED"
+        elif is_sim:
+            verification_status = "N/A (SIMULATED)"
+        else:
+            verification_status = "UNVERIFIED"
+
         formatted.append({
             "id": a.id,
             "action_id": a.action_id,
@@ -232,6 +253,9 @@ def get_tenant_containment_actions(
             "policy_rule": a.policy_rule,
             "status": a.status,
             "is_simulated": is_sim,
+            "execution_mode": "SIMULATION" if is_sim else "LIVE",
+            "execution_result": execution_result,
+            "verification_status": verification_status,
             "adapter_mode": "SIMULATED / DRY_RUN" if is_sim else "LIVE_HOST_ENFORCEMENT",
             "executor_type": executor_type,
             "ttl_seconds": a.ttl_seconds,
@@ -240,14 +264,47 @@ def get_tenant_containment_actions(
             "verified_at": str(a.verified_at) if a.verified_at else None,
             "rolled_back_at": str(a.rolled_back_at) if a.rolled_back_at else None,
             "execution_output": a.execution_output,
+            "error_message": a.error_message,
             "created_at": str(a.created_at) if a.created_at else None
         })
+
+    # Current active enforcement state (real-time active rules on host)
+    staged_rules = sum(1 for a in actions if (a.status or "").upper() in ("SIMULATED", "STAGED", "DISPATCHED", "RECEIVED"))
+    pending_evaluation = sum(1 for a in actions if (a.status or "").upper() == "PENDING")
+    verified_active = sum(1 for a in actions if (a.status or "").upper() == "VERIFIED")
+    rolled_back = sum(1 for a in actions if (a.status or "").upper() == "ROLLED_BACK")
+    expired = sum(1 for a in actions if (a.status or "").upper() == "EXPIRED")
+    released = rolled_back + expired
+
+    # Historical containment metrics computed strictly from persisted actions
+    history_total = len(actions)
+    history_verified = sum(1 for a in actions if a.verified_at is not None or (a.status or "").upper() == "VERIFIED")
+    history_rolled_back = sum(1 for a in actions if (a.status or "").upper() == "ROLLED_BACK")
+    history_expired = sum(1 for a in actions if (a.status or "").upper() == "EXPIRED")
+    history_failed = sum(1 for a in actions if (a.status or "").upper() == "FAILED" or bool(a.error_message))
+    history_simulated = sum(1 for item in formatted if item["is_simulated"])
 
     return {
         "tenant_id": tenant.id,
         "actions": formatted,
         "total": len(formatted),
-        "mode": "HYBRID_SUPPORTED"
+        "mode": "HYBRID_SUPPORTED",
+        "stats": {
+            "staged_rules": staged_rules,
+            "pending_evaluation": pending_evaluation,
+            "verified_active": verified_active,
+            "rolled_back": rolled_back,
+            "expired": expired,
+            "released": released
+        },
+        "history_stats": {
+            "total_actions": history_total,
+            "successfully_verified": history_verified,
+            "rolled_back": history_rolled_back,
+            "expired": history_expired,
+            "failed": history_failed,
+            "simulated": history_simulated
+        }
     }
 
 
@@ -342,6 +399,37 @@ def rollback_tenant_containment_action(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ste))
     except PermissionError as pe:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(pe))
+
+
+@router.post("/containment/actions/{action_id}/verify")
+def verify_tenant_containment_action(
+    action_id: str,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Independently verifies active containment status for this tenant's action."""
+    tenant = resolve_tenant_record(current_user, db)
+    action = db.query(models.ContainmentAction).filter(
+        (models.ContainmentAction.action_id == action_id) | (models.ContainmentAction.id == action_id)
+    ).first()
+
+    if not action or action.tenant_id != tenant.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Containment action '{action_id}' not found."
+        )
+
+    try:
+        adapter = get_containment_adapter()
+        result = adapter.verify_containment(
+            action=action,
+            db=db,
+            actor=f"USER_{current_user.email}"
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
 
 
 @router.post("/containment/actions/expire")

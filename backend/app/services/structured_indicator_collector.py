@@ -26,7 +26,7 @@ from typing import Optional, List, Dict, Any, Tuple
 from sqlalchemy.orm import Session
 
 from app import models
-from app.models import ContainmentAction, ContainmentAuditLog
+from app.models import ContainmentAction, ContainmentAuditLog, ThreatReport
 from app.services.containment_policy import (
     AutonomousPolicyEngine,
     NetworkIndicatorCandidate,
@@ -34,6 +34,7 @@ from app.services.containment_policy import (
     MAX_INDICATOR_AGE_DAYS
 )
 from app.services.firewall_adapter import SimulatedFirewallAdapter
+from app.services.mitre_service import map_threat_to_attack
 
 logger = logging.getLogger("structured_indicator_collector")
 
@@ -158,6 +159,51 @@ def process_structured_indicator_record(
         f"Malware: {malware_family}, Port: {port}, AS: {as_name}, Status: {record.get('status', 'unknown')}"
     )
 
+    # Deterministic MITRE ATT&CK mapping from structured indicator evidence
+    mitre_mappings = map_threat_to_attack(evidence_summary)
+
+    # Ensure ThreatReport record exists/is enriched with MITRE mapping in stix_bundle
+    threat_report_id = record.get("threat_report_id")
+    threat_report = None
+    if threat_report_id:
+        threat_report = db.query(ThreatReport).filter(ThreatReport.id == threat_report_id).first()
+        if threat_report:
+            stix = dict(threat_report.stix_bundle or {})
+            stix["mitre_attack"] = mitre_mappings
+            threat_report.stix_bundle = stix
+            db.commit()
+    else:
+        cve_key = f"C2-{parsed_ip}"
+        threat_report = db.query(ThreatReport).filter(ThreatReport.cve_id == cve_key).first()
+        if not threat_report:
+            threat_report = ThreatReport(
+                cve_id=cve_key,
+                source_url=f"https://feodotracker.abuse.ch/browse/host/{parsed_ip}/",
+                title=f"Botnet C2 Indicator: {parsed_ip} ({malware_family})",
+                summary=evidence_summary,
+                severity="high" if confidence >= 85.0 else "medium",
+                stix_bundle={
+                    "type": "bundle",
+                    "mitre_attack": mitre_mappings,
+                    "objects": [
+                        {
+                            "type": "indicator",
+                            "value": str(parsed_ip),
+                            "name": f"Feodo C2 {parsed_ip}",
+                            "labels": ["malicious-activity", "botnet-c2"]
+                        }
+                    ]
+                }
+            )
+            db.add(threat_report)
+            db.commit()
+            db.refresh(threat_report)
+        else:
+            stix = dict(threat_report.stix_bundle or {})
+            stix["mitre_attack"] = mitre_mappings
+            threat_report.stix_bundle = stix
+            db.commit()
+
     candidate = NetworkIndicatorCandidate(
         indicator_value=str(parsed_ip),
         tenant_id=tenant.id,
@@ -168,12 +214,14 @@ def process_structured_indicator_record(
         observed_at=obs_time,
         indicator_type="ipv4",
         ttl_seconds=3600,
+        threat_report_id=threat_report.id if threat_report else None,
         metadata={
             "feed_source": source_name,
             "malware_family": malware_family,
             "port": port,
             "as_name": as_name,
-            "raw_status": record.get("status")
+            "raw_status": record.get("status"),
+            "mitre_attack": mitre_mappings
         }
     )
 
@@ -186,6 +234,13 @@ def process_structured_indicator_record(
 
     if not qualified or not action:
         return False, None, reason
+
+    # Enrich action rule_spec with MITRE mapping telemetry
+    if action:
+        rule_spec = dict(action.rule_spec or {})
+        rule_spec["mitre_attack"] = mitre_mappings
+        action.rule_spec = rule_spec
+        db.commit()
 
     # 2. Automated Hand-off to Active Firewall Adapter
     try:
@@ -277,12 +332,14 @@ def ingest_and_process_structured_indicators(
 
             if success and action:
                 qualified_count += 1
+                mitre_list = [m.get("technique_id") for m in (action.rule_spec or {}).get("mitre_attack", []) if m.get("technique_id")]
                 staged_actions.append({
                     "action_id": action.action_id,
                     "tenant_id": tenant.id,
                     "tenant_name": tenant.company_name,
                     "indicator": action.indicator_value,
                     "status": action.status,
+                    "mitre_attack": mitre_list,
                     "applied_at": action.applied_at.isoformat() if action.applied_at else None,
                     "expires_at": action.expires_at.isoformat() if action.expires_at else None,
                     "is_simulated": True

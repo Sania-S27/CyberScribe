@@ -521,6 +521,69 @@ npm run dev
 - Enforces an unprivileged daemon user boundary (`cyberscribe`) with sudo privileges restricted strictly to `/usr/libexec/cyberscribe/cyberscribe_nft_helper.py`. Direct sudo access to `/usr/sbin/nft` is prohibited.
 - Implements atomic multi-rule rollback on partial failure.
 
+### 3. Local Campus Guide Protected by Windows Firewall Demonstration
+
+CyberScribe features an end-to-end portfolio demonstration protecting a local instance of the **Campus Guide** application on Windows Defender Firewall.
+
+> [!IMPORTANT]
+> **Environment Boundary & Integrity Notice:**
+> - The production Campus Guide cloud deployment (Render API & Vercel Frontend) is a separate, public cloud deployment and is **never** claimed to be behind the local host firewall.
+> - The live firewall containment demonstration protects a **locally running / staging Campus Guide backend** listening on `http://127.0.0.1:8000` on the controlled Windows demonstration host.
+> - `SIMULATION` mode remains the safe default (`CONTAINMENT_ADAPTER_MODE="simulated"`). Live firewall execution requires explicit opt-in via `CONTAINMENT_ADAPTER_MODE="live_windows"`.
+
+#### Architecture & Demonstration Flow
+```text
+Threat Advisory (Exploit targeting Campus Guide port 8000)
+                         ↓
+       Threat Ingestion & STIX/Advisory Normalization
+                         ↓
+         Grounded Confidence & Trusted-Source Gate
+                         ↓
+  Autonomous Policy Evaluation (Qualifies for Containment)
+                         ↓
+  Action Decision: BLOCK_INBOUND_PORT_8000 (Targeting Port 8000)
+                         ↓
+        Windows Defender Firewall Rule Enforcement
+              (CyberScribe_<action_id>)
+                         ↓
+   Independent Read-Back Inspection (netsh advfirewall)
+                         ↓
+         Protected Service Health & Access Verification
+                         ↓
+     Immutable Audit Trail Recording (ContainmentAuditLog)
+                         ↓
+       Exact Rule Rollback & Deletion Verification
+```
+
+#### Step-by-Step Execution Commands
+
+1. **Start the Local Campus Guide Backend (Port 8000):**
+   ```powershell
+   Set-Location "E:\Campus Guide Project\backend"
+   python -m uvicorn main:app --host 0.0.0.0 --port 8000
+   ```
+   *Verify health:* `Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/health"`
+
+2. **Start the Windows Firewall Executor Daemon (Administrator PowerShell, Port 8089):**
+   ```powershell
+   Set-Location "E:\cyber threat agent copy\cyber_threat_agent_project\backend"
+   python -m uvicorn app.services.windows_executor.windows_executor_daemon:app --host 127.0.0.1 --port 8089
+   ```
+   *Verify daemon:* `Invoke-RestMethod -Uri "http://127.0.0.1:8089/health"`
+
+3. **Run the Demonstration Script:**
+   *Safe Simulation Mode (Zero host changes):*
+   ```powershell
+   Set-Location "E:\cyber threat agent copy\cyber_threat_agent_project"
+   python backend\scripts\demo_local_campus_guide_containment.py SIMULATION
+   ```
+
+   *Live Windows Firewall Mode (Real rule creation, verification, and rollback):*
+   ```powershell
+   Set-Location "E:\cyber threat agent copy\cyber_threat_agent_project"
+   python backend\scripts\demo_local_campus_guide_containment.py LIVE_WINDOWS
+   ```
+
 ---
 
 ## 7. Verified REST API Endpoint Catalog

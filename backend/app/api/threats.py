@@ -381,6 +381,8 @@ def get_tenant_threat_matches(
             "cve_id": report.cve_id if (report and report.cve_id) else "CVE-N/A",
             "severity": report.severity if report else "HIGH",
             "summary": report.summary if report else "",
+            "source_url": report.source_url if (report and hasattr(report, "source_url")) else None,
+            "advisory_url": report.source_url if (report and hasattr(report, "source_url")) else None,
             "status": normalize_status(m.status),
             "ai_confidence_score": float(m.ai_confidence_score) if m.ai_confidence_score is not None else 94.0,
             "ai_matching_reason": m.ai_matching_reason,

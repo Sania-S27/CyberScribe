@@ -181,7 +181,7 @@ class WindowsFirewallAdapter:
     def is_live_mode_enabled(cls) -> bool:
         """Checks if live Windows firewall containment is explicitly opted into."""
         mode = os.getenv("CONTAINMENT_ADAPTER_MODE", "simulated").strip().lower()
-        return mode in ("windows_firewall", "windows_defender", "windows_live", "windows")
+        return mode in ("live_windows", "windows_live", "windows_firewall", "windows_defender", "windows")
 
     @classmethod
     def get_rule_name(cls, action_id: str) -> str:

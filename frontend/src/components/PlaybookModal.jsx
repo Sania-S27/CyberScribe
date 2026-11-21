@@ -8,7 +8,10 @@ export default function PlaybookModal({
   playbookData,
   playbook: playbookProp,
   threatTitle,
-  title
+  title,
+  match,
+  finding,
+  onExportPdf
 }) {
   const [copiedGlobal, setCopiedGlobal] = useState(false)
   const [copiedSection, setCopiedSection] = useState(null)
@@ -75,7 +78,11 @@ export default function PlaybookModal({
 
   // Download playbook as structured PDF
   const handleDownloadPdf = () => {
-    downloadPlaybookPdf(displayTitle, playbook)
+    if (onExportPdf) {
+      onExportPdf()
+    } else {
+      downloadPlaybookPdf(displayTitle, playbook)
+    }
   }
 
   // Helper to split patch guidance text into numbered points
@@ -130,10 +137,10 @@ export default function PlaybookModal({
             <button
               onClick={handleDownloadPdf}
               className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-mono transition cursor-pointer"
-              title="Download Playbook as PDF"
+              title="Export Playbook as PDF"
             >
               <FileText className="w-3.5 h-3.5" />
-              <span>Download PDF</span>
+              <span>Export PDF</span>
             </button>
             <button
               onClick={handleDownloadJson}

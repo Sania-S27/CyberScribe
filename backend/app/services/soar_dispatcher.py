@@ -73,9 +73,11 @@ def dispatch_containment_action_to_tenant(
 
     actual_delivery_id = delivery_id or f"soar-act-{uuid.uuid4().hex[:12]}"
     previous_status = action.status
+    is_live_verified = (previous_status in ("VERIFIED", "APPLIED"))
 
     # 3. Transition to DISPATCHED
-    action.status = "DISPATCHED"
+    if not is_live_verified:
+        action.status = "DISPATCHED"
     AutonomousPolicyEngine._record_audit_log(
         db=db,
         tenant_id=tenant.id,
@@ -83,7 +85,7 @@ def dispatch_containment_action_to_tenant(
         event_type="SOAR_DISPATCHED",
         actor="SOAR_DISPATCHER",
         previous_status=previous_status,
-        new_status="DISPATCHED",
+        new_status="DISPATCHED" if not is_live_verified else previous_status,
         details={
             "delivery_id": actual_delivery_id,
             "target_indicator": action.indicator_value,
@@ -158,41 +160,50 @@ def dispatch_containment_action_to_tenant(
             last_err = f"SOAR dispatch network failure: {str(err)}"
 
     if is_success and last_resp:
-        action.status = "RECEIVED"
-        action.execution_output = (
-            f"[SOAR DELIVERY] Tenant {tenant.company_name} acknowledged receipt with HTTP {last_resp.status_code} "
-            f"(delivery_id: {actual_delivery_id}). Enforcement NOT confirmed."
-        )
+        if not is_live_verified:
+            action.status = "RECEIVED"
+            action.execution_output = (
+                f"[SOAR DELIVERY] Tenant {tenant.company_name} acknowledged receipt with HTTP {last_resp.status_code} "
+                f"(delivery_id: {actual_delivery_id}). Enforcement NOT confirmed."
+            )
+        else:
+            delivery_note = f"[SOAR NOTIFICATION] Delivered to {tenant.company_name} (HTTP {last_resp.status_code}, delivery_id: {actual_delivery_id})"
+            if action.execution_output:
+                action.execution_output = f"{action.execution_output} | {delivery_note}"
+            else:
+                action.execution_output = delivery_note
+
         AutonomousPolicyEngine._record_audit_log(
             db=db,
             tenant_id=tenant.id,
             action_id=action.id,
             event_type="SOAR_RECEIVED",
             actor="SOAR_DISPATCHER",
-            previous_status="DISPATCHED",
-            new_status="RECEIVED",
+            previous_status="DISPATCHED" if not is_live_verified else previous_status,
+            new_status="RECEIVED" if not is_live_verified else previous_status,
             details={
                 "delivery_id": actual_delivery_id,
                 "status_code": last_resp.status_code,
                 "target_indicator": action.indicator_value,
-                "enforcement_confirmed": False,
-                "note": "Payload received by tenant for review. Does NOT assert live firewall changes."
+                "enforcement_confirmed": is_live_verified,
+                "note": "Payload received by tenant for review. Does NOT assert live firewall changes." if not is_live_verified else "SOAR containment notification acknowledged by tenant."
             }
         )
         db.commit()
 
         return {
-            "status": "RECEIVED",
+            "status": "RECEIVED" if not is_live_verified else "DELIVERED",
             "action_id": action.action_id,
             "tenant_id": tenant.id,
             "tenant_name": tenant.company_name,
             "delivery_id": actual_delivery_id,
             "status_code": last_resp.status_code,
-            "is_live_enforcement": False,
-            "message": f"Containment action delivered to {tenant.company_name}. Acknowledged for review."
+            "is_live_enforcement": is_live_verified,
+            "message": f"Containment action delivered to {tenant.company_name}. Acknowledged for review." if not is_live_verified else f"Containment notification delivered to {tenant.company_name} (HTTP {last_resp.status_code})."
         }
     else:
-        action.status = "FAILED"
+        if not is_live_verified:
+            action.status = "FAILED"
         action.error_message = last_err or "SOAR dispatch failed after bounded retries"
         AutonomousPolicyEngine._record_audit_log(
             db=db,
@@ -200,8 +211,8 @@ def dispatch_containment_action_to_tenant(
             action_id=action.id,
             event_type="SOAR_DISPATCH_FAILED",
             actor="SOAR_DISPATCHER",
-            previous_status="DISPATCHED",
-            new_status="FAILED",
+            previous_status="DISPATCHED" if not is_live_verified else previous_status,
+            new_status="FAILED" if not is_live_verified else previous_status,
             details={
                 "delivery_id": actual_delivery_id,
                 "status_code": last_resp.status_code if last_resp else None,

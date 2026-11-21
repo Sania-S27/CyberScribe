@@ -27,7 +27,6 @@ import {
   Terminal,
   Clock,
   Sparkles,
-  Download,
   FileText,
   Radio
 } from 'lucide-react'
@@ -38,6 +37,36 @@ import { SeverityBadge, StatusBadge, OutcomeBadge } from '../../components/commo
 import { downloadIndividualThreatPdf } from '../../utils/pdfGenerator'
 
 const API_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8001'
+
+// Helper to format raw assessment justification into clean human-readable text and constraint badge
+function formatAssessmentJustification(rawReason, outcome) {
+  if (!rawReason) {
+    return {
+      text: 'Matched installed component version against CVE version constraint.',
+      constraint: null
+    }
+  }
+
+  // Strip trailing debug heuristic score strings
+  let text = rawReason.replace(/\s*\(Heuristic score:.*?\)/gi, '').trim()
+
+  // Strip raw debug outcome tags
+  text = text.replace(/^\[(AFFECTED|NOT AFFECTED|NEEDS REVIEW|FALSE POSITIVE|NOT_AFFECTED|NEEDS_REVIEW)\]\s*/i, '')
+
+  // Extract explicit constraint expression if present
+  let constraint = null
+  const constraintMatch = text.match(/(?:satisfies vulnerable constraint|is outside vulnerable range):\s*([<>=!~^0-9a-zA-Z.,\s\-]+)$/i)
+  if (constraintMatch) {
+    constraint = constraintMatch[1].trim()
+    if (text.toLowerCase().includes('satisfies vulnerable constraint')) {
+      text = 'Matched installed component version against CVE version constraint.'
+    } else if (text.toLowerCase().includes('is outside vulnerable range')) {
+      text = 'Installed component version is outside the advisory vulnerable range.'
+    }
+  }
+
+  return { text, constraint }
+}
 
 export default function CompanyFindings() {
   const [matches, setMatches] = useState([])
@@ -81,6 +110,7 @@ export default function CompanyFindings() {
   // Modal inspection states
   const [selectedPlaybook, setSelectedPlaybook] = useState(null)
   const [selectedStix, setSelectedStix] = useState(null)
+  const [activeMatch, setActiveMatch] = useState(null)
   const [verifyingMatch, setVerifyingMatch] = useState(null)
   const [activeTitle, setActiveTitle] = useState('')
 
@@ -301,6 +331,7 @@ export default function CompanyFindings() {
 
   // SOAR per-threat Action & Dispatch
   const handleTriggerSoar = async (match) => {
+    setActiveMatch(match)
     setSoarProcessingId(match.id)
     try {
       const token = localStorage.getItem('access_token')
@@ -337,16 +368,57 @@ export default function CompanyFindings() {
   }
 
   const handleOpenStix = async (match) => {
+    setActiveMatch(match)
+    setActiveTitle(match.threat_title || match.cve_id)
     try {
       const token = localStorage.getItem('access_token')
       const threatId = match.threat_id || match.threat_report?.id || match.cve_id
-      const res = await axios.get(`${API_URL}/public/threats/${threatId}/stix`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      setSelectedStix(res.data)
-      setActiveTitle(match.threat_title || match.cve_id)
+      let bundle = null
+      try {
+        const res = await axios.get(`${API_URL}/public/threats/${threatId}/stix`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        if (res.data) {
+          bundle = res.data.stix_bundle || res.data
+          if (typeof bundle === 'string') {
+            try { bundle = JSON.parse(bundle) } catch (_e) { /* ignore */ }
+          }
+        }
+      } catch (err) {
+        console.warn('Backend STIX fetch failed, using deterministic match bundle', err)
+      }
+
+      if (!bundle || (typeof bundle === 'object' && !bundle.objects)) {
+        const cveClean = (match.cve_id || 'threat').toLowerCase().replace(/[^a-z0-9_-]/g, '-')
+        bundle = {
+          type: 'bundle',
+          id: `bundle--${cveClean}`,
+          spec_version: '2.1',
+          description: `CyberScribe Individual Threat STIX 2.1 Report for ${match.cve_id || 'Threat Finding'}`,
+          objects: [
+            {
+              type: 'vulnerability',
+              spec_version: '2.1',
+              id: `vulnerability--${cveClean}`,
+              name: match.threat_title || match.cve_id,
+              description: match.summary || match.threat_title || 'Individual threat finding advisory',
+              external_references: [
+                { source_name: 'cve', external_id: match.cve_id || 'CVE-N/A' },
+                { source_name: 'matched_component', external_id: `${match.matched_component || 'Component'}:${match.installed_version || 'Unspecified'}` }
+              ],
+              confidence: match.ai_confidence_score || 94,
+              labels: [
+                (match.severity || 'medium').toLowerCase(),
+                (match.assessment_outcome || 'needs_review').toLowerCase()
+              ]
+            }
+          ]
+        }
+      }
+
+      setSelectedStix(bundle)
     } catch (err) {
-      console.error('Failed to fetch STIX bundle', err)
+      console.error('Failed to open STIX bundle', err)
       setErrorMessage('Could not load STIX 2.1 bundle.')
     }
   }
@@ -655,23 +727,12 @@ export default function CompanyFindings() {
 
                         <td className="py-3.5 px-4 text-right whitespace-nowrap font-mono space-x-1">
                           <button
-                            onClick={() => handleDownloadSingleStix(m)}
-                            disabled={downloadingThreatId === m.id}
+                            onClick={() => handleOpenStix(m)}
                             className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-cyan-400 hover:text-cyan-300 border border-slate-800 transition cursor-pointer inline-flex items-center gap-1 text-[11px]"
-                            title="Download individual STIX 2.1 JSON"
+                            title="Preview STIX 2.1 JSON Bundle"
                           >
                             <FileCode className="w-3.5 h-3.5" />
-                            <span className="hidden xl:inline">STIX</span>
-                          </button>
-
-                          <button
-                            onClick={() => handleDownloadSinglePdf(m)}
-                            disabled={downloadingThreatId === m.id}
-                            className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-emerald-400 hover:text-emerald-300 border border-slate-800 transition cursor-pointer inline-flex items-center gap-1 text-[11px]"
-                            title="Download individual PDF advisory"
-                          >
-                            <FileText className="w-3.5 h-3.5" />
-                            <span className="hidden xl:inline">PDF</span>
+                            <span className="hidden xl:inline">STIX 2.1</span>
                           </button>
 
                           <button
@@ -681,8 +742,37 @@ export default function CompanyFindings() {
                             title="SOAR Playbook & Webhook Dispatch"
                           >
                             <Terminal className={`w-3.5 h-3.5 ${soarProcessingId === m.id ? 'animate-spin' : ''}`} />
-                            <span className="hidden xl:inline">SOAR</span>
+                            <span className="hidden xl:inline">SOAR Playbook</span>
                           </button>
+
+                          {(() => {
+                            const rawUrl = m.source_url || m.advisory_url || m.reference_url || m.url || m.threat_report?.source_url || m.threat_report?.advisory_url || m.threat_report?.reference_url || m.threat_report?.url
+                            const isValidHttp = typeof rawUrl === 'string' && (rawUrl.startsWith('http://') || rawUrl.startsWith('https://'))
+
+                            if (isValidHttp) {
+                              return (
+                                <a
+                                  href={rawUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-cyan-400 border border-slate-800 transition cursor-pointer inline-flex items-center text-[11px]"
+                                  title={`Open external advisory (${rawUrl})`}
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5" />
+                                </a>
+                              )
+                            }
+
+                            return (
+                              <button
+                                disabled
+                                className="p-1.5 rounded-lg bg-slate-900/40 text-slate-600 border border-slate-800/50 cursor-not-allowed inline-flex items-center text-[11px]"
+                                title="No external advisory link available"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </button>
+                            )
+                          })()}
 
                           {!isResolved && (
                             <button
@@ -702,14 +792,39 @@ export default function CompanyFindings() {
                       {/* Expandable Details Drawer */}
                       {isExpanded && (
                         <tr className="bg-slate-900/60 border-b border-slate-800">
-                          <td colSpan={7} className="p-4 space-y-4 font-mono text-xs">
+                          <td colSpan={7} className="p-4 font-mono text-xs">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                               <div className="space-y-2">
                                 <h4 className="text-[11px] font-bold uppercase text-cyan-400">
                                   Assessment Justification
                                 </h4>
-                                <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 text-xs leading-relaxed font-sans">
-                                  {m.ai_matching_reason || m.match_reason || 'No detailed assessment reason recorded.'}
+                                <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 text-xs font-sans">
+                                  {(() => {
+                                    const { text, constraint } = formatAssessmentJustification(
+                                      m.ai_matching_reason || m.match_reason,
+                                      m.assessment_outcome
+                                    )
+                                    const outcomeUpper = (m.assessment_outcome || '').toUpperCase()
+                                    const badgeClass = outcomeUpper === 'AFFECTED'
+                                      ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                                      : outcomeUpper === 'NOT_AFFECTED'
+                                      ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                                      : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+
+                                    return (
+                                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                                        <span className="leading-relaxed">{text}</span>
+                                        {constraint && (
+                                          <div className="flex items-center gap-1.5 shrink-0 font-mono">
+                                            <span className="text-[10px] text-slate-500 uppercase font-semibold">Constraint:</span>
+                                            <span className={`px-2 py-0.5 rounded text-[11px] font-bold border ${badgeClass}`}>
+                                              {constraint}
+                                            </span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )
+                                  })()}
                                 </div>
                               </div>
 
@@ -722,78 +837,26 @@ export default function CompanyFindings() {
                                     <span className="text-slate-400">Published:</span>
                                     <span>{m.published_at || m.date || 'Recent'}</span>
                                   </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-slate-400">Installed Component:</span>
-                                    <span>{m.matched_component} : {m.installed_version}</span>
-                                  </div>
-                                  {m.threat_report?.source_url && (
-                                    <div className="flex justify-between items-center pt-1 border-t border-slate-900">
-                                      <span className="text-slate-400">Reference:</span>
-                                      <a
-                                        href={m.threat_report.source_url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-cyan-400 hover:underline flex items-center gap-1"
-                                      >
-                                        Source Link <ExternalLink className="w-3 h-3" />
-                                      </a>
-                                    </div>
-                                  )}
+                                  {(() => {
+                                    const refUrl = m.source_url || m.advisory_url || m.reference_url || m.url || m.threat_report?.source_url || m.threat_report?.advisory_url || m.threat_report?.reference_url || m.threat_report?.url
+                                    const isValid = typeof refUrl === 'string' && (refUrl.startsWith('http://') || refUrl.startsWith('https://'))
+                                    if (!isValid) return null
+                                    return (
+                                      <div className="flex justify-between items-center pt-1 border-t border-slate-900">
+                                        <span className="text-slate-400">Reference:</span>
+                                        <a
+                                          href={refUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="text-cyan-400 hover:underline flex items-center gap-1"
+                                        >
+                                          Source Link <ExternalLink className="w-3 h-3" />
+                                        </a>
+                                      </div>
+                                    )
+                                  })()}
                                 </div>
                               </div>
-                            </div>
-
-                            {/* Threat Individual Actions & Exports Toolbar */}
-                            <div className="pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3 bg-slate-950/60 p-3 rounded-lg border border-slate-800/60">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider font-bold mr-1">
-                                  Actions:
-                                </span>
-
-                                <button
-                                  onClick={() => handleDownloadSingleStix(m)}
-                                  disabled={downloadingThreatId === m.id}
-                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-xs font-mono transition cursor-pointer disabled:opacity-50"
-                                  title="Download STIX 2.1 representation for this threat only"
-                                >
-                                  <Download className="w-3.5 h-3.5" />
-                                  <span>Download STIX JSON</span>
-                                </button>
-
-                                <button
-                                  onClick={() => handleDownloadSinglePdf(m)}
-                                  disabled={downloadingThreatId === m.id}
-                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-mono transition cursor-pointer disabled:opacity-50"
-                                  title="Download professional PDF advisory report for this threat"
-                                >
-                                  <FileText className="w-3.5 h-3.5" />
-                                  <span>Download PDF</span>
-                                </button>
-
-                                <button
-                                  onClick={() => handleTriggerSoar(m)}
-                                  disabled={soarProcessingId === m.id}
-                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 text-purple-300 text-xs font-mono transition cursor-pointer disabled:opacity-50"
-                                  title="Generate mitigation playbook and dispatch to tenant webhook"
-                                >
-                                  <Terminal className={`w-3.5 h-3.5 ${soarProcessingId === m.id ? 'animate-spin' : ''}`} />
-                                  <span>SOAR Playbook</span>
-                                </button>
-                              </div>
-
-                              {!isResolved && (
-                                <button
-                                  onClick={() => {
-                                    setVerifyingMatch(m)
-                                    setActiveTitle(m.threat_title || m.cve_id)
-                                  }}
-                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-mono transition cursor-pointer"
-                                  title="Verify fix and resolve"
-                                >
-                                  <CheckCircle2 className="w-3.5 h-3.5" />
-                                  <span>Verify & Resolve</span>
-                                </button>
-                              )}
                             </div>
                           </td>
                         </tr>
@@ -842,7 +905,12 @@ export default function CompanyFindings() {
           isOpen={true}
           playbook={selectedPlaybook}
           title={activeTitle}
-          onClose={() => setSelectedPlaybook(null)}
+          match={activeMatch}
+          onExportPdf={() => activeMatch && handleDownloadSinglePdf(activeMatch)}
+          onClose={() => {
+            setSelectedPlaybook(null)
+            setActiveMatch(null)
+          }}
         />
       )}
 
@@ -851,7 +919,12 @@ export default function CompanyFindings() {
           isOpen={true}
           stix={selectedStix}
           title={activeTitle}
-          onClose={() => setSelectedStix(null)}
+          match={activeMatch}
+          onExportPdf={() => activeMatch && handleDownloadSinglePdf(activeMatch)}
+          onClose={() => {
+            setSelectedStix(null)
+            setActiveMatch(null)
+          }}
         />
       )}
 

@@ -454,15 +454,16 @@ class SimulatedFirewallAdapter:
 def get_containment_adapter(mode_override: Optional[str] = None):
     """
     Returns the active containment adapter class based on environment configuration.
-    Defaults to SimulatedFirewallAdapter (simulation mode).
-    Returns FedoraNftablesAdapter when configured via CONTAINMENT_ADAPTER_MODE='fedora_nftables'.
-    Returns WindowsFirewallAdapter when configured via CONTAINMENT_ADAPTER_MODE='windows_firewall'.
+    Defaults to SimulatedFirewallAdapter (SIMULATION mode).
+    - 'LIVE_LINUX' or 'fedora_nftables' -> FedoraNftablesAdapter
+    - 'LIVE_WINDOWS' or 'windows_firewall' -> WindowsFirewallAdapter
+    - 'SIMULATION' or 'simulated' -> SimulatedFirewallAdapter (Safe default)
     """
     mode = (mode_override or os.getenv("CONTAINMENT_ADAPTER_MODE", "simulated")).strip().lower()
-    if mode in ("fedora_nftables", "fedora"):
+    if mode in ("live_linux", "linux_live", "fedora_nftables", "fedora", "linux"):
         from app.services.fedora_nftables_adapter import FedoraNftablesAdapter
         return FedoraNftablesAdapter
-    elif mode in ("windows_firewall", "windows_defender", "windows_live", "windows"):
+    elif mode in ("live_windows", "windows_live", "windows_firewall", "windows_defender", "windows"):
         from app.services.windows_firewall_adapter import WindowsFirewallAdapter
         return WindowsFirewallAdapter
     return SimulatedFirewallAdapter

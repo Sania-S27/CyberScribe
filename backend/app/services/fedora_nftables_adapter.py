@@ -138,7 +138,7 @@ class FedoraNftablesAdapter:
             live_requested = True
         elif is_simulated is None:
             mode = os.getenv("CONTAINMENT_ADAPTER_MODE", "simulated").strip().lower()
-            if mode in ("fedora_nftables", "fedora", "live") or bool(token):
+            if mode in ("fedora_nftables", "fedora", "live", "live_linux"):
                 live_requested = True
 
         if live_requested and not token:

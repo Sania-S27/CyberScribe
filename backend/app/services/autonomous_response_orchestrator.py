@@ -70,8 +70,8 @@ class AutonomousResponseOrchestrator:
         """Returns True if live host firewall operations are enabled."""
         mode = os.getenv("CONTAINMENT_ADAPTER_MODE", "simulated").strip().lower()
         return mode in (
-            "windows_firewall", "windows_defender", "windows_live", "windows",
-            "fedora_nftables", "fedora", "live"
+            "windows_firewall", "windows_defender", "windows_live", "windows", "live_windows",
+            "fedora_nftables", "fedora", "live", "live_linux"
         )
 
     @classmethod
@@ -580,6 +580,17 @@ class AutonomousResponseOrchestrator:
                                     containment_action_id=containment_result.get("action_id"),
                                     additional_evidence=f"Justified containment rule staged for IP {clean_ip} ({action_type})."
                                 )
+                                # Dispatch SOAR webhook if tenant has a webhook_url configured
+                                if getattr(tenant, "webhook_url", None):
+                                    try:
+                                        from app.services.soar_dispatcher import dispatch_containment_action_to_tenant
+                                        dispatch_containment_action_to_tenant(
+                                            action=containment_action,
+                                            tenant=tenant,
+                                            db=db
+                                        )
+                                    except Exception as soar_dispatch_err:
+                                        logger.warning(f"SOAR webhook dispatch warning (non-fatal): {soar_dispatch_err}")
                             elif containment_result and containment_result.get("status") == "FAILED":
                                 NotificationService.send_incident_notification(
                                     db=db,

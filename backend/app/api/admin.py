@@ -179,8 +179,27 @@ def get_admin_containment_actions(
             "created_at": str(a.created_at) if a.created_at else None
         })
 
+    staged_rules = sum(1 for a in actions if (a.status or "").upper() in ("SIMULATED", "STAGED", "DISPATCHED", "RECEIVED"))
+    pending_evaluation = sum(1 for a in actions if (a.status or "").upper() == "PENDING")
+    verified_active = sum(1 for a in actions if (a.status or "").upper() == "VERIFIED")
+    rolled_back = sum(1 for a in actions if (a.status or "").upper() == "ROLLED_BACK")
+    expired = sum(1 for a in actions if (a.status or "").upper() == "EXPIRED")
+    released = rolled_back + expired
+
     active_mode = os.getenv("CONTAINMENT_ADAPTER_MODE", "simulated").upper()
-    return {"actions": formatted, "total": len(formatted), "mode": active_mode}
+    return {
+        "actions": formatted,
+        "total": len(formatted),
+        "mode": active_mode,
+        "stats": {
+            "staged_rules": staged_rules,
+            "pending_evaluation": pending_evaluation,
+            "verified_active": verified_active,
+            "rolled_back": rolled_back,
+            "expired": expired,
+            "released": released
+        }
+    }
 
 
 @router.post("/containment/actions/trigger")

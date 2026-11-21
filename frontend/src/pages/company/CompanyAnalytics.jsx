@@ -8,7 +8,6 @@ import {
   ShieldCheck,
   Layers,
   Clock,
-  CheckCircle2,
   AlertTriangle,
   ArrowUpRight,
   RefreshCw
@@ -116,10 +115,6 @@ export default function CompanyAnalytics() {
   const medPct = Math.round(((severityCounts.medium || 0) / totalSev) * 100)
   const lowPct = Math.round(((severityCounts.low || 0) / totalSev) * 100)
 
-  const resolutionRate = summary.active_affected + summary.resolved > 0
-    ? Math.round((summary.resolved / (summary.active_affected + summary.resolved)) * 100)
-    : 100
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -136,14 +131,7 @@ export default function CompanyAnalytics() {
       </div>
 
       {/* KPI Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Resolution Velocity"
-          value={`${resolutionRate}%`}
-          icon={CheckCircle2}
-          accent="emerald"
-          subtitle={`${summary.resolved} resolved vs ${summary.active_affected} unresolved`}
-        />
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
           title="Critical & High"
           value={severityCounts.critical + severityCounts.high}

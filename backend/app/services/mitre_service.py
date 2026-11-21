@@ -19,7 +19,7 @@ _METADATA_CACHE: Optional[Dict[str, Any]] = None
 # Curated behavioral pattern rules mapping technical signals to ATT&CK technique IDs
 BEHAVIORAL_PATTERNS: List[Tuple[re.Pattern, str, str]] = [
     # Initial Access & Public Exploitation
-    (re.compile(r"\b(exploit(ed|ing)?\s+public|remote\s+code\s+execution|unauthenticated\s+rce|public[\s\-_]facing|web\s+server\s+exploit)\b", re.I), "T1190", "Exploit Public-Facing Application"),
+    (re.compile(r"\b(exploit(ed|ing)?\s+public|remote\s+code\s+execution|unauthenticated\s+rce|public[\s\-_]facing|web\s+server\s+exploit|remote\s+exploit)\b", re.I), "T1190", "Exploit Public-Facing Application"),
     (re.compile(r"\b(spear[\s\-_]?phishing|phishing\s+email|malicious\s+attachment|drive[\s\-_]by)\b", re.I), "T1566", "Phishing"),
     (re.compile(r"\b(valid\s+account|compromised\s+credentials|stolen\s+password|default\s+credentials)\b", re.I), "T1078", "Valid Accounts"),
     (re.compile(r"\b(supply\s+chain|compromised\s+dependency|malicious\s+package|typosquatting)\b", re.I), "T1195", "Supply Chain Compromise"),
@@ -51,7 +51,7 @@ BEHAVIORAL_PATTERNS: List[Tuple[re.Pattern, str, str]] = [
     (re.compile(r"\b(lateral\s+movement|remote\s+services|smb\s+exec|psexec|ssh\s+hijacking)\b", re.I), "T1021", "Remote Services"),
     
     # Command & Control
-    (re.compile(r"\b(c2|command\s+and\s+control|c&c|beaconing|reverse\s+shell|covert\s+channel)\b", re.I), "T1071", "Application Layer Protocol"),
+    (re.compile(r"\b(c2|command\s+and\s+control|c&c|beaconing|reverse\s+shell|covert\s+channel|botnet)\b", re.I), "T1071", "Application Layer Protocol"),
     
     # Impact
     (re.compile(r"\b(ransomware|encrypt(ed|s|ing)\s+files|data\s+destruction|wiper|wiping\s+data|denial\s+of\s+service|dos\s+attack)\b", re.I), "T1486", "Data Encrypted for Impact")
@@ -271,3 +271,28 @@ def validate_and_ground_mitre_mappings(
         })
 
     return validated_mappings
+
+
+def map_threat_to_attack(raw_text: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    """
+    Deterministically maps threat text/indicators to authoritative MITRE ATT&CK techniques.
+    Combines behavioral pattern matching with authoritative knowledge base validation.
+    Returns validated mappings containing technique_id, technique_name, tactic, evidence, confidence, and url.
+    """
+    if not raw_text or not str(raw_text).strip():
+        return []
+
+    candidates = find_candidate_techniques_for_threat(str(raw_text), top_k=top_k)
+    if not candidates:
+        return []
+
+    proposed = [
+        {
+            "technique_id": c["technique_id"],
+            "tactic": c.get("tactic"),
+            "evidence": c.get("matched_evidence", "")
+        }
+        for c in candidates
+    ]
+    return validate_and_ground_mitre_mappings(str(raw_text), proposed)
+

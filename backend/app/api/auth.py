@@ -17,6 +17,9 @@ class UserRegisterRequest(BaseModel):
     company_name: str
     email: str
     password: str
+    webhook_url: Optional[str] = None
+    auth_token: Optional[str] = None
+    tech_stack: Optional[str] = None
 
 class UserLoginRequest(BaseModel):
     email: Optional[str] = None
@@ -30,7 +33,18 @@ def register_tenant(payload: UserRegisterRequest, db: Session = Depends(get_db))
     if existing_user:
         raise HTTPException(status_code=400, detail="User with this email already exists")
 
-    new_tenant = models.Tenant(company_name=payload.company_name, tech_stack="")
+    clean_company = payload.company_name.strip()
+    clean_webhook = payload.webhook_url.strip() if payload.webhook_url and payload.webhook_url.strip() else None
+    clean_token = payload.auth_token.strip() if payload.auth_token and payload.auth_token.strip() else None
+    clean_tech_stack = payload.tech_stack.strip() if payload.tech_stack and payload.tech_stack.strip() else ""
+
+    new_tenant = models.Tenant(
+        company_name=clean_company,
+        tech_stack=clean_tech_stack,
+        webhook_url=clean_webhook,
+        auth_token=clean_token,
+        remediation_policy="NOTIFY"
+    )
     db.add(new_tenant)
     db.commit()
     db.refresh(new_tenant)
@@ -45,7 +59,11 @@ def register_tenant(payload: UserRegisterRequest, db: Session = Depends(get_db))
     db.add(new_user)
     db.commit()
 
-    return {"status": "success", "message": "Tenant registered successfully"}
+    return {
+        "status": "success",
+        "message": "Tenant registered successfully",
+        "tenant_id": new_tenant.id
+    }
 
 @router.post("/login")
 async def login(request: Request, db: Session = Depends(get_db)):

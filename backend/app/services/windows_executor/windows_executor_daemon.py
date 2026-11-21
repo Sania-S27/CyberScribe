@@ -20,6 +20,16 @@ backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
+try:
+    from dotenv import load_dotenv
+    env_file = os.path.join(backend_dir, ".env")
+    if os.path.exists(env_file):
+        load_dotenv(env_file)
+    else:
+        load_dotenv()
+except ImportError:
+    pass
+
 from app.services.windows_executor import cyberscribe_win_helper as helper
 
 logger = logging.getLogger("WindowsExecutorDaemon")

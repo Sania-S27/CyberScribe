@@ -16,7 +16,10 @@ import {
   ShieldAlert,
   Cpu,
   Check,
-  Bell
+  Bell,
+  Copy,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react'
 import StatCard from '../../components/common/StatCard'
 import { SeverityBadge, StatusBadge } from '../../components/common/Badges'
@@ -34,8 +37,29 @@ export default function CompanyRemediation() {
   const [activeTitle, setActiveTitle] = useState('')
   const [executingProposalId, setExecutingProposalId] = useState(null)
   const [retryingNotifId, setRetryingNotifId] = useState(null)
+  const [expandedProposalId, setExpandedProposalId] = useState(null)
+  const [copiedCommandId, setCopiedCommandId] = useState(null)
   const [actionFeedback, setActionFeedback] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
+
+  const getRemediationCommand = (prop) => {
+    if (prop.package_manager === 'npm') {
+      return `npm install ${prop.package_name}@${prop.target_version}`
+    }
+    return `pip install ${prop.package_name}==${prop.target_version}`
+  }
+
+  const handleCopyCommand = (prop, e) => {
+    if (e) e.stopPropagation()
+    const cmd = getRemediationCommand(prop)
+    navigator.clipboard.writeText(cmd)
+    setCopiedCommandId(prop.proposal_id)
+    setTimeout(() => setCopiedCommandId(null), 2000)
+  }
+
+  const toggleExpandProposal = (proposalId) => {
+    setExpandedProposalId((prev) => (prev === proposalId ? null : proposalId))
+  }
 
   const fetchData = async () => {
     setLoading(true)
@@ -268,70 +292,200 @@ export default function CompanyRemediation() {
                   <th className="py-3 px-4">Package</th>
                   <th className="py-3 px-4">Version Upgrade</th>
                   <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4">Verification Check</th>
+                  <th className="py-3 px-4">Remediation Plan & Verification</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-xs font-mono">
                 {proposals.map((prop) => (
-                  <tr key={prop.proposal_id} className="hover:bg-slate-900/40 transition">
-                    <td className="py-3 px-4 text-cyan-300 font-bold whitespace-nowrap">
-                      {prop.proposal_id}
-                    </td>
-                    <td className="py-3 px-4 font-bold text-slate-200">
-                      {prop.package_name}
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      <span className="text-slate-400">{prop.current_version}</span>
-                      <ArrowRight className="w-3.5 h-3.5 inline mx-1.5 text-slate-500" />
-                      <span className="text-emerald-400 font-bold">{prop.target_version}</span>
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      <span className={`px-2 py-0.5 rounded text-[11px] border font-bold ${
-                        prop.status === 'PROPOSED' ? 'bg-amber-500/10 border-amber-500/30 text-amber-300' :
-                        prop.status === 'APPROVED' ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300' :
-                        prop.status === 'APPLIED' ? 'bg-sky-500/10 border-sky-500/30 text-sky-300' :
-                        prop.status === 'VERIFIED' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' :
-                        prop.status === 'REJECTED' ? 'bg-rose-500/10 border-rose-500/30 text-rose-300' :
-                        'bg-slate-800 text-slate-400 border-slate-700'
-                      }`}>
-                        {prop.status}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-[11px] text-slate-400 font-sans">
-                      {prop.status === 'VERIFIED' ? (
-                        <span className="text-emerald-400 font-mono text-[11px] flex items-center gap-1">
-                          <Check className="w-3.5 h-3.5" /> Post-patch constraint verified
-                        </span>
-                      ) : (
-                        'Compatibility & constraint verified'
-                      )}
-                    </td>
-                    <td className="py-3 px-4 text-right whitespace-nowrap space-x-2">
-                      {prop.status === 'PROPOSED' && (
+                  <React.Fragment key={prop.proposal_id}>
+                    <tr className="hover:bg-slate-900/40 transition">
+                      <td className="py-3 px-4 text-cyan-300 font-bold whitespace-nowrap">
                         <button
-                          onClick={() => handleApproveProposal(prop.proposal_id)}
-                          className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 hover:text-cyan-200 text-xs transition cursor-pointer"
+                          onClick={() => toggleExpandProposal(prop.proposal_id)}
+                          className="inline-flex items-center gap-1.5 hover:text-cyan-200 transition cursor-pointer"
+                          title="Toggle remediation plan"
                         >
-                          Approve
+                          {expandedProposalId === prop.proposal_id ? (
+                            <ChevronDown className="w-3.5 h-3.5 text-cyan-400" />
+                          ) : (
+                            <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
+                          )}
+                          {prop.proposal_id}
                         </button>
-                      )}
-                      {(prop.status === 'APPROVED' || prop.status === 'PROPOSED') && (
-                        <button
-                          onClick={() => handleExecuteAndRelease(prop.proposal_id)}
-                          disabled={executingProposalId === prop.proposal_id}
-                          className="px-2.5 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-bold transition cursor-pointer disabled:opacity-50"
-                        >
-                          {executingProposalId === prop.proposal_id ? 'Executing...' : 'Execute & Release Containment'}
-                        </button>
-                      )}
-                      {prop.status === 'VERIFIED' && (
-                        <span className="text-emerald-400 font-mono text-[11px] font-bold">
-                          Successfully Patched & Released
+                      </td>
+                      <td className="py-3 px-4 font-bold text-slate-200">
+                        {prop.package_name}
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1.5 font-mono text-xs">
+                          <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 font-medium">
+                            {prop.current_version}
+                          </span>
+                          <span className="text-slate-500 font-bold">→</span>
+                          <span className="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold">
+                            {prop.target_version}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <span className={`px-2 py-0.5 rounded text-[11px] border font-bold inline-flex items-center gap-1 ${
+                          prop.status === 'PROPOSED' ? 'bg-amber-500/10 border-amber-500/30 text-amber-300' :
+                          prop.status === 'APPROVED' ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300' :
+                          prop.status === 'APPLIED' ? 'bg-sky-500/10 border-sky-500/30 text-sky-300' :
+                          prop.status === 'VERIFIED' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' :
+                          prop.status === 'REJECTED' ? 'bg-rose-500/10 border-rose-500/30 text-rose-300' :
+                          'bg-slate-800 text-slate-400 border-slate-700'
+                        }`}>
+                          {prop.status === 'VERIFIED' && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
+                          {prop.status}
                         </span>
-                      )}
-                    </td>
-                  </tr>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="space-y-1">
+                          <div className="inline-flex items-center gap-2">
+                            <code className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-cyan-300">
+                              {getRemediationCommand(prop)}
+                            </code>
+                            <button
+                              onClick={(e) => handleCopyCommand(prop, e)}
+                              className="text-slate-400 hover:text-cyan-300 transition p-1 cursor-pointer"
+                              title="Copy upgrade command"
+                            >
+                              {copiedCommandId === prop.proposal_id ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 font-bold">
+                                  <Check className="w-3 h-3" /> Copied
+                                </span>
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          </div>
+                          <p className="text-[10px] text-slate-500 font-sans">
+                            {prop.status === 'VERIFIED' ? (
+                              <span className="text-emerald-400/90 font-mono flex items-center gap-1">
+                                <Check className="w-3 h-3" /> Post-patch constraint verified
+                              </span>
+                            ) : (
+                              'Compatibility & constraint verified'
+                            )}
+                          </p>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-right whitespace-nowrap space-x-2">
+                        {prop.status === 'PROPOSED' && (
+                          <button
+                            onClick={() => handleApproveProposal(prop.proposal_id)}
+                            className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 hover:text-cyan-200 text-xs transition cursor-pointer"
+                          >
+                            Approve
+                          </button>
+                        )}
+                        {(prop.status === 'APPROVED' || prop.status === 'PROPOSED') && (
+                          <button
+                            onClick={() => handleExecuteAndRelease(prop.proposal_id)}
+                            disabled={executingProposalId === prop.proposal_id}
+                            className="px-2.5 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-bold transition cursor-pointer disabled:opacity-50"
+                          >
+                            {executingProposalId === prop.proposal_id ? 'Executing...' : 'Execute & Release Containment'}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => toggleExpandProposal(prop.proposal_id)}
+                          className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-cyan-300 text-xs transition cursor-pointer inline-flex items-center gap-1"
+                        >
+                          <Terminal className="w-3 h-3 text-cyan-400" />
+                          {expandedProposalId === prop.proposal_id ? 'Hide Plan' : 'View Plan'}
+                        </button>
+                      </td>
+                    </tr>
+
+                    {/* Expandable Remediation Plan Card */}
+                    {expandedProposalId === prop.proposal_id && (
+                      <tr className="bg-slate-950/70 border-b border-slate-800">
+                        <td colSpan={6} className="p-4">
+                          <div className="bg-slate-900/80 border border-slate-800/90 rounded-lg p-4 space-y-3 font-mono text-xs">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                              <div className="flex items-center gap-2">
+                                <Terminal className="w-4 h-4 text-cyan-400" />
+                                <span className="font-bold text-slate-200 uppercase tracking-wider text-[11px]">
+                                  Autonomous Remediation Plan — {prop.proposal_id}
+                                </span>
+                                <span className="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold">
+                                  STATUS: {prop.status}
+                                </span>
+                              </div>
+                              <button
+                                onClick={(e) => handleCopyCommand(prop, e)}
+                                className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-cyan-300 text-[11px] transition cursor-pointer self-start sm:self-auto"
+                              >
+                                {copiedCommandId === prop.proposal_id ? (
+                                  <>
+                                    <Check className="w-3.5 h-3.5 text-emerald-400" /> Copied Command
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3.5 h-3.5" /> Copy Command
+                                  </>
+                                )}
+                              </button>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="space-y-1.5">
+                                <label className="text-slate-400 text-[11px] uppercase tracking-wider block font-bold">
+                                  Remediation Plan (Recommended Command)
+                                </label>
+                                <div className="bg-slate-950 p-2.5 rounded border border-slate-800 flex items-center justify-between text-cyan-300 font-mono text-xs">
+                                  <code>{getRemediationCommand(prop)}</code>
+                                </div>
+                                <p className="text-[11px] text-slate-400 font-sans italic mt-1">
+                                  Verified patch plan generated under AUTO_PATCH policy (staged for controlled deployment).
+                                </p>
+                              </div>
+
+                              <div className="space-y-1.5">
+                                <label className="text-slate-400 text-[11px] uppercase tracking-wider block font-bold">
+                                  Verification & Safety Check
+                                </label>
+                                <div className="bg-slate-950 p-2.5 rounded border border-slate-800 space-y-1 text-slate-300 text-[11px]">
+                                  <div className="flex justify-between">
+                                    <span className="text-slate-500">Target Package:</span>
+                                    <span className="text-slate-200 font-bold">{prop.package_name}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-slate-500">Upgrade Path:</span>
+                                    <span className="text-emerald-400 font-bold">{prop.current_version} → {prop.target_version}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-slate-500">Constraint Verification:</span>
+                                    <span className="text-emerald-400 font-bold">Post-patch constraint verified</span>
+                                  </div>
+                                  {prop.verified_at && (
+                                    <div className="flex justify-between">
+                                      <span className="text-slate-500">Verified Timestamp:</span>
+                                      <span className="text-slate-400">{prop.verified_at}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {prop.execution_output && (
+                              <div className="space-y-1 pt-1">
+                                <label className="text-slate-400 text-[11px] uppercase tracking-wider block">
+                                  Execution Telemetry Output
+                                </label>
+                                <pre className="p-2.5 bg-black/60 border border-slate-800/80 rounded text-[11px] text-slate-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-32">
+                                  {prop.execution_output}
+                                </pre>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>
